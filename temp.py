@@ -38,6 +38,25 @@ class ImageRequest(BaseModel):
     image_base64: str
     session_id: str = None
 
+def get_or_create_session(session_id):
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+        sessions[session_id] = {"history": []}
+    elif session_id not in sessions:
+        sessions[session_id] = {"history": []}  # Optionally create a new session if not found
+    return session_id
+
+def append_to_session_history(session_id, item_type, content):
+    session = sessions[session_id]
+    session["history"].append({"type": item_type, "content": content})
+
+def generate_response_from_history(session_id):
+    # Placeholder for generating a response based on the session history
+    # This function should be implemented based on your specific logic
+    # For this example, let's concatenate the contents as a simple response
+    session = sessions[session_id]
+    combined_text = " ".join(item["content"] for item in session["history"])
+    return combined_text  # This would be replaced with your response generation logic
 
 def search_youtube_videos(keyword, max_results=2):
     youtube = build('youtube', 'v3', developerKey=API_KEY_youtube)
@@ -122,7 +141,17 @@ def generate_summary(text):
 
 # Create a conversation chain
 conversation = ConversationChain(llm=llm, verbose=True)
+@app.post("/text")
+def handle_text_input(request: TextRequest):
+    print(request.session_id)
+    session_id = get_or_create_session(request.session_id)
+    append_to_session_history(session_id, "text", request.text)
 
+    # Generate a response based on the updated session history
+    response = generate_response_from_history(session_id)
+    data = generate_summary(response)
+    videos=search_youtube_videos(data)
+    return {"session_id": session_id, "response": response,"videos":videos}
 
 
 
@@ -145,12 +174,8 @@ async def combined_handler(text: str = Form(None), file: UploadFile = File(None)
     summary = None
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either text or file must be provided.")
-    if file and text:
-        summary1 = await handle_image(file)
-        summary = handle_text(text + summary1)
     if file:
         summary = await handle_image(file)
-        print(summary)
     if text and not summary:
         summary = handle_text(text)
     if not summary:
