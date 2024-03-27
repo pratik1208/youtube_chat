@@ -8,13 +8,17 @@ from langchain.chains import ConversationChain
 import uuid
 from langchain_community.llms import OpenAI
 # from langchain_openai import OpenAI
+from langchain.chat_models import ChatOpenAI
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
 import base64
 import uuid
 import openai
-
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts.chat import ChatPromptTemplate, SystemMessagePromptTemplate, AIMessagePromptTemplate, HumanMessagePromptTemplate
+from typing import Optional, List
+from langchain.schema import AIMessage,HumanMessage,SystemMessage
 from decouple import config
 openai_api_key = config("OPENAI_API_KEY")
 
@@ -26,19 +30,12 @@ API_KEY_youtube = config("YOUTUBE_API_KEY")
 
 
 app = FastAPI()
-
-# Placeholder for storing session data
-sessions = {}
-
 class TextRequest(BaseModel):
     text: str
-    session_id: str = None
+    
 
 class ImageRequest(BaseModel):
     image_base64: str
-    session_id: str = None
-
-
 def search_youtube_videos(keyword, max_results=2):
     youtube = build('youtube', 'v3', developerKey=API_KEY_youtube)
     search_response = youtube.search().list(
@@ -101,8 +98,6 @@ def generate_summary_from_image(image_base64):
     else:
         return None
 
-# Initialize the OpenAI language model
-llm = OpenAI(temperature=0, openai_api_key=openai.api_key)
 
 
 def generate_summary(text):
@@ -120,15 +115,29 @@ def generate_summary(text):
     summary = response.choices[0].text.strip()
     return summary
 
-# Create a conversation chain
-conversation = ConversationChain(llm=llm, verbose=True)
+class ChatRequest(BaseModel):
+    user_input: str
 
+class ChatResponse(BaseModel):
+    ai_response: str
+    videos: Optional[List[dict]]
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    messages = [SystemMessage(content="You are a helpful assistant")]
+    messages.append(HumanMessage(content=request.user_input))
+    ai_response = chat_model(messages=messages).content
+
+    summary = generate_summary(ai_response)
+    videos = search_youtube_videos(summary)
+
+    return ChatResponse(ai_response=ai_response, videos=videos)
 
 
 
 class CombinedRequest(BaseModel):
     text: str = None
-    session_id: str = None
+    
 
 async def handle_image(file: UploadFile):
     contents = await file.read()
