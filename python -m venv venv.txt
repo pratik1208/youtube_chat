@@ -1,0 +1,11 @@
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+curl --location 'http://127.0.0.1:8000/combined' \
+--form 'file=@"/C:/Users/HP/Desktop/llm-assignment-master/backend/tajmahal.jpg"' \
+--form 'text="IIT Indore"'
+
+
+pip install python-decouple
+pip freeze > requirements.txt

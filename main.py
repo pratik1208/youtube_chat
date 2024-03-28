@@ -3,22 +3,16 @@ from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 from googleapiclient.discovery import build
 import openai
-from langchain.chains import ConversationChain
 # from langchain.llms import OpenAI
 import uuid
-from langchain_community.llms import OpenAI
 # from langchain_openai import OpenAI
-from langchain.chat_models import ChatOpenAI
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
 import base64
 import uuid
 import openai
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts.chat import ChatPromptTemplate, SystemMessagePromptTemplate, AIMessagePromptTemplate, HumanMessagePromptTemplate
 from typing import Optional, List
-from langchain.schema import AIMessage,HumanMessage,SystemMessage
 from decouple import config
 openai_api_key = config("OPENAI_API_KEY")
 
@@ -33,29 +27,24 @@ app = FastAPI()
 class TextRequest(BaseModel):
     text: str
     
-
 class ImageRequest(BaseModel):
     image_base64: str
-def search_youtube_videos(keyword, max_results=2):
-    youtube = build('youtube', 'v3', developerKey=API_KEY_youtube)
-    search_response = youtube.search().list(
-        q=keyword,
-        part='snippet',
-        maxResults=max_results
-    ).execute()
 
-    videos = []
-    for search_result in search_response.get('items', []):
-        video_title = search_result['snippet']['title']
 
-        # try:
-        video_id = search_result['id']['videoId']
-        video_url = f'https://www.youtube.com/watch?v={video_id}'
-        videos.append({"title": video_title, "url": video_url})
-        # except:
-        #     return videos
-    return videos
+def generate_summary(text):
+    # Set your OpenAI API key
+    openai.api_key =openai_api_key
 
+    # Generate summary using OpenAI's Completion API
+    response = openai.Completion.create(
+        engine="gpt-3.5-turbo-instruct",
+        prompt=f"Summarize in a single phrase so that I could search that text on youtube and I will get similar content:\n{text}",
+        max_tokens=50
+    )
+
+    # Extract and return the summary
+    summary = response.choices[0].text.strip()
+    return summary
 # Function to encode image to base64
 def encode_image(image_bytes):
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
@@ -98,23 +87,29 @@ def generate_summary_from_image(image_base64):
     else:
         return None
 
+def search_youtube_videos(keyword, max_results=2):
+    youtube = build('youtube', 'v3', developerKey=API_KEY_youtube)
+    search_response = youtube.search().list(
+        q=keyword,
+        part='snippet',
+        maxResults=max_results
+    ).execute()
 
+    videos = []
+    for search_result in search_response.get('items', []):
+        video_title = search_result['snippet']['title']
 
-def generate_summary(text):
-    # Set your OpenAI API key
-    openai.api_key =openai_api_key
+        # try:
+        video_id = search_result['id']['videoId']
+        video_url = f'https://www.youtube.com/watch?v={video_id}'
+        videos.append({"title": video_title, "url": video_url})
+        # except:
+        #     return videos
+    return videos
 
-    # Generate summary using OpenAI's Completion API
-    response = openai.Completion.create(
-        engine="gpt-3.5-turbo-instruct",
-        prompt=f"Summarize in a single phrase so that I could search that text on youtube and I will get similar content:\n{text}",
-        max_tokens=50
-    )
-
-    # Extract and return the summary
-    summary = response.choices[0].text.strip()
-    return summary
-
+messages=[]
+system_message={"role":"system","content":"You assistant who can help user to suggest youtube links according to prompt given"}
+messages.append(system_message)
 class ChatRequest(BaseModel):
     user_input: str
 
@@ -122,23 +117,9 @@ class ChatResponse(BaseModel):
     ai_response: str
     videos: Optional[List[dict]]
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    messages = [SystemMessage(content="You are a helpful assistant")]
-    messages.append(HumanMessage(content=request.user_input))
-    ai_response = chat_model(messages=messages).content
-
-    summary = generate_summary(ai_response)
-    videos = search_youtube_videos(summary)
-
-    return ChatResponse(ai_response=ai_response, videos=videos)
-
-
-
 class CombinedRequest(BaseModel):
     text: str = None
     
-
 async def handle_image(file: UploadFile):
     contents = await file.read()
     base64_string = base64.b64encode(contents).decode('utf-8')
@@ -146,21 +127,32 @@ async def handle_image(file: UploadFile):
     return summary
 
 def handle_text(text: str):
+    
+    user_message={"role":"user"}
+    user_message["content"]= text
+    messages.append(user_message)
+    text = user_message["content"]
     summary = generate_summary(text)
-    return summary
+    response_text = search_youtube_videos(summary)
+    assistant_message={"role":"assistant"}
+    assistant_message["summary"]=summary
+    assistant_message["content"]=response_text
+    messages.append(assistant_message)
+    return messages[-1]["content"]
 
 @app.post("/combined")
 async def combined_handler(text: str = Form(None), file: UploadFile = File(None)):
     summary = None
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either text or file must be provided.")
-    if file and text:
+    elif file and text:
         summary1 = await handle_image(file)
-        summary = handle_text(text + summary1)
-    if file:
+        summary2 = handle_text(text)
+        summary=summary1+","+summary2
+    elif file:
         summary = await handle_image(file)
         print(summary)
-    if text and not summary:
+    elif text and not summary:
         summary = handle_text(text)
     if not summary:
         raise HTTPException(status_code=400, detail="Unable to generate a summary from the provided input.")
@@ -168,16 +160,3 @@ async def combined_handler(text: str = Form(None), file: UploadFile = File(None)
     return {"summary": summary, "videos": videos}
 
 
-
-def make_openai_request(prompt):
-    headers = {"Authorization": f"Bearer {openai_api_key}"}
-    data = {
-        "prompt": prompt,
-        "max_tokens": 50,
-        "temperature": 0.7,
-    }
-    response = requests.post("https://api.openai.com/v1/completions", headers=headers, json=data)
-    if response.status_code == 200:
-        return response.json()["choices"][0]["text"]
-    else:
-        return "Error generating response"
