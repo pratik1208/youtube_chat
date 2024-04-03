@@ -120,17 +120,14 @@ class ChatResponse(BaseModel):
 class CombinedRequest(BaseModel):
     text: str = None
 
-# image_path = "/content/drive/MyDrive/tajmahal.jpg"
-# human_response_text= image_path
-# user_message={"role":"user"}
-# user_message["content"]=image_summary(image_path)
-# user_message
+
 async def handle_image(file: UploadFile):
     contents = await file.read()
     base64_string = base64.b64encode(contents).decode('utf-8')
     user_message={"role":"user"}
     user_message["content"]=image_summary(base64_string)
     messages.append(user_message)
+    print(messages)
     text = user_message["content"]
     summary = text_summary(text)
     response_text = search_videos(summary)
@@ -138,8 +135,7 @@ async def handle_image(file: UploadFile):
     assistant_message["summary"]=summary
     assistant_message["content"]=response_text
     messages.append(assistant_message)
-
-    return messages[-1]["content"]
+    return messages
 
 def handle_text(text: str):
     
@@ -153,7 +149,7 @@ def handle_text(text: str):
     assistant_message["summary"]=summary
     assistant_message["content"]=response_text
     messages.append(assistant_message)
-    return messages[-1]["content"]
+    return messages
 
 @app.post("/combined")
 async def combined_handler(text: str = Form(None), file: UploadFile = File(None)):
@@ -163,7 +159,7 @@ async def combined_handler(text: str = Form(None), file: UploadFile = File(None)
     elif file and text:
         summary1 = await handle_image(file)
         summary2 = handle_text(text)
-        summary=summary1+","+summary2
+        summary= summary1 + summary2
     elif file:
         summary = await handle_image(file)
         print(summary)
@@ -172,6 +168,6 @@ async def combined_handler(text: str = Form(None), file: UploadFile = File(None)
     if not summary:
         raise HTTPException(status_code=400, detail="Unable to generate a summary from the provided input.")
     videos = search_videos(summary)
-    return {"summary": summary, "videos": videos}
+    return { "videos": videos}
 
 

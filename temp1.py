@@ -23,6 +23,7 @@ openai.api_key =openai_api_key
 API_KEY_youtube = config("YOUTUBE_API_KEY")
 
 
+
 app = FastAPI()
 class TextRequest(BaseModel):
     text: str
@@ -94,7 +95,8 @@ def search_youtube_videos(keyword, max_results=2):
         part='snippet',
         maxResults=max_results
     ).execute()
-
+    print("11111111111111111111111111111111111111111")
+    print(search_response)
     videos = []
     for search_result in search_response.get('items', []):
         video_title = search_result['snippet']['title']
@@ -130,6 +132,7 @@ def handle_text(text: str):
 
 @app.post("/combined")
 async def combined_handler(text: str = Form(None), file: UploadFile = File(None)):
+    print("hereeeeeeeeee")
     summary = None
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either text or file must be provided.")
